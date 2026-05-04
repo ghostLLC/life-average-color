@@ -48,7 +48,7 @@ export function buildGradient(coreColors: LabColor[], stops: number = 12): strin
     };
   }
 
-  // Step 3-6: Build gradient stops
+  // Steps 3-5: Build gradient stops (interpolation + RGB conversion)
   const result: string[] = [];
 
   for (let i = 0; i < stops; i++) {

@@ -18,7 +18,7 @@ import { useColor } from './src/hooks/useColor';
 import CardViewWithRef, { type CardViewHandle } from './src/card/CardView';
 import type { AnalysisResult, TimePeriod } from './src/types';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// -- Helpers ------------------------------------------------------------------
 
 /** Build a TimePeriod for a given year/month (1-indexed). */
 function makePeriod(year: number, month: number): TimePeriod {
@@ -32,7 +32,7 @@ function formatMonthLabel(year: number, month: number): string {
   return `${year}年${month}月`;
 }
 
-// ── App ──────────────────────────────────────────────────────────────────────
+// -- App ----------------------------------------------------------------------
 
 export default function App() {
   // ---- Time period state ----
@@ -57,14 +57,17 @@ export default function App() {
     loading: analyzing,
     error: analysisError,
     clearError,
+    abort,
+    progress,
   } = useColor();
 
   // ---- Result state ----
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const cardRef = useRef<CardViewHandle>(null);
 
-  // ---- Month navigation ----
+  // ---- Month navigation (aborts in-flight analysis) ----
   const goToPrevMonth = useCallback(() => {
+    abort();
     clearError();
     setResult(null);
     if (month === 1) {
@@ -73,9 +76,10 @@ export default function App() {
     } else {
       setMonth((m) => m - 1);
     }
-  }, [month, clearError]);
+  }, [month, abort, clearError]);
 
   const goToNextMonth = useCallback(() => {
+    abort();
     clearError();
     setResult(null);
     if (month === 12) {
@@ -84,9 +88,9 @@ export default function App() {
     } else {
       setMonth((m) => m + 1);
     }
-  }, [month, clearError]);
+  }, [month, abort, clearError]);
 
-  // Reload photos when period changes
+  // Reload photos when period changes or permission is granted
   const handlePeriodChange = useCallback(async () => {
     if (permission?.granted) {
       await reload();
@@ -96,7 +100,7 @@ export default function App() {
   // Trigger reload on month change
   React.useEffect(() => {
     handlePeriodChange();
-  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [period, handlePeriodChange]);
 
   // ---- Analyze handler ----
   const handleAnalyze = useCallback(async () => {
@@ -120,7 +124,7 @@ export default function App() {
       const analysisResult = await analyze(photos, period.label);
       setResult(analysisResult);
     } catch {
-      // Error is already set in the hook
+      // Error already set in the hook, or aborted silently
     }
   }, [permission, requestPermission, reload, photos, photosLoading, analyze, period.label, clearError]);
 
@@ -171,7 +175,7 @@ export default function App() {
   const isLoading = analyzing || (photosLoading && permission?.granted && !result);
   const hasResult = result !== null;
 
-  // ---- Render ───────────────────────────────────────────────────────────────
+  // ---- Render ---------------------------------------------------------------
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
@@ -180,11 +184,11 @@ export default function App() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Header ─────────────────────────────────────────────────────── */}
+        {/* -- Header -- */}
         <Text style={styles.title}>生活平均色</Text>
         <Text style={styles.subtitle}>你的相册，调成一杯莫吉托的颜色</Text>
 
-        {/* ── Month Selector ─────────────────────────────────────────────── */}
+        {/* -- Month Selector -- */}
         <View style={styles.monthSelector}>
           <TouchableOpacity
             onPress={goToPrevMonth}
@@ -192,7 +196,7 @@ export default function App() {
             disabled={isLoading}
             activeOpacity={0.6}
           >
-            <Text style={styles.arrowText}>{'‹'}</Text>
+            <Text style={styles.arrowText}>{'<'}</Text>
           </TouchableOpacity>
 
           <Text style={styles.monthLabel}>
@@ -205,11 +209,11 @@ export default function App() {
             disabled={isLoading}
             activeOpacity={0.6}
           >
-            <Text style={styles.arrowText}>{'›'}</Text>
+            <Text style={styles.arrowText}>{'>'}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* ── Analyze Button ─────────────────────────────────────────────── */}
+        {/* -- Analyze Button -- */}
         <TouchableOpacity
           onPress={handleAnalyze}
           style={[styles.analyzeButton, isLoading && styles.analyzeButtonDisabled]}
@@ -225,7 +229,7 @@ export default function App() {
           )}
         </TouchableOpacity>
 
-        {/* ── Permission Denied ──────────────────────────────────────────── */}
+        {/* -- Permission Denied -- */}
         {permissionDenied && (
           <View style={styles.stateContainer}>
             <Text style={styles.stateIcon}>🔒</Text>
@@ -240,7 +244,7 @@ export default function App() {
           </View>
         )}
 
-        {/* ── No Photos ──────────────────────────────────────────────────── */}
+        {/* -- No Photos -- */}
         {noPhotos && (
           <View style={styles.stateContainer}>
             <Text style={styles.stateIcon}>📷</Text>
@@ -248,7 +252,7 @@ export default function App() {
           </View>
         )}
 
-        {/* ── Loading (standalone, when not triggered by analyze button) ─── */}
+        {/* -- Loading (standalone, when not triggered by analyze button) -- */}
         {photosLoading && !permissionDenied && !analyzing && !hasResult && (
           <View style={styles.stateContainer}>
             <ActivityIndicator color="rgba(255,255,255,0.6)" size="large" />
@@ -256,16 +260,39 @@ export default function App() {
           </View>
         )}
 
-        {/* ── Analysis in Progress ───────────────────────────────────────── */}
+        {/* -- Analysis in Progress -- */}
         {analyzing && (
           <View style={styles.stateContainer}>
             <ActivityIndicator color="#e94560" size="large" />
             <Text style={styles.stateText}>正在分析你的色彩...</Text>
-            <Text style={styles.stateHint}>正在读取每张照片的调色板</Text>
+            {progress ? (
+              <>
+                <Text style={styles.stateHint}>
+                  已处理 {progress.current} / {progress.total} 张照片
+                </Text>
+                <View style={styles.progressBarContainer}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      { width: `${Math.round((progress.current / progress.total) * 100)}%` },
+                    ]}
+                  />
+                </View>
+              </>
+            ) : (
+              <Text style={styles.stateHint}>正在读取每张照片的调色板</Text>
+            )}
+            <TouchableOpacity
+              onPress={abort}
+              style={styles.cancelButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cancelButtonText}>取消</Text>
+            </TouchableOpacity>
           </View>
         )}
 
-        {/* ── Analysis Error ─────────────────────────────────────────────── */}
+        {/* -- Analysis Error -- */}
         {analysisError && !analyzing && (
           <View style={styles.stateContainer}>
             <Text style={styles.stateIcon}>⚠️</Text>
@@ -280,7 +307,7 @@ export default function App() {
           </View>
         )}
 
-        {/* ── Result Card ────────────────────────────────────────────────── */}
+        {/* -- Result Card -- */}
         {hasResult && result && (
           <View style={styles.resultSection}>
             <CardViewWithRef
@@ -320,7 +347,7 @@ export default function App() {
   );
 }
 
-// ── Styles ───────────────────────────────────────────────────────────────────
+// -- Styles -------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   safe: {
@@ -441,6 +468,36 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
     fontWeight: '600',
+  },
+
+  // Cancel button (during analysis)
+  cancelButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(233, 69, 96, 0.5)',
+  },
+  cancelButtonText: {
+    color: '#e94560',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Progress bar
+  progressBarContainer: {
+    width: '80%',
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#e94560',
+    borderRadius: 2,
   },
 
   // Result section

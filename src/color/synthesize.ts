@@ -1,5 +1,6 @@
 // src/color/synthesize.ts — Cross-photo color palette synthesis using weighted K-means
 import kmeans from 'kmeans-ts';
+import { averageLab } from './lab';
 import type { LabColor, ColorCluster } from '../types';
 
 /**
@@ -27,7 +28,7 @@ export function synthesizeColorPalette(
   allPhotoClusters: ColorCluster[][],
   targetColors: number = 5,
 ): LabColor[] {
-  // --- 1. Collect weighted samples from all clusters ---
+  // 1. Collect weighted samples from all clusters
   const samples: number[][] = [];
 
   for (const photoClusters of allPhotoClusters) {
@@ -37,18 +38,17 @@ export function synthesizeColorPalette(
 
       const point = [cluster.color.l, cluster.color.a, cluster.color.b];
       for (let i = 0; i < count; i++) {
-        // Push a fresh array so kmeans doesn't mutate shared references
-        samples.push([point[0], point[1], point[2]]);
+        samples.push(point.slice());
       }
     }
   }
 
-  // --- 2. Edge case: no samples at all ---
+  // 2. Edge case: no samples at all
   if (samples.length === 0) {
     return [];
   }
 
-  // --- 3. Adjust target K downward if we have too few samples ---
+  // 3. Adjust target K downward if we have too few samples
   const effectiveK = Math.min(targetColors, samples.length);
 
   // Single color — compute the simple mean of all weighted samples
@@ -57,34 +57,18 @@ export function synthesizeColorPalette(
     return [avg];
   }
 
-  // --- 4. Run K-means on the consolidated sample set ---
+  // 4. Run K-means on the consolidated sample set
   const result = kmeans(samples, effectiveK);
 
-  // --- 5. Build output palette from centroids ---
+  // 5. Build output palette from centroids
   const palette: LabColor[] = result.centroids.map((centroid) => ({
     l: centroid[0],
     a: centroid[1],
     b: centroid[2],
   }));
 
-  // --- 6. Sort by lightness descending for a natural reading order ---
+  // 6. Sort by lightness descending for a natural reading order
   palette.sort((a, b) => b.l - a.l);
 
   return palette;
-}
-
-/** Compute the simple mean of LAB vectors */
-function averageLab(samples: number[][]): LabColor {
-  const n = samples.length;
-  let sl = 0;
-  let sa = 0;
-  let sb = 0;
-
-  for (const s of samples) {
-    sl += s[0];
-    sa += s[1];
-    sb += s[2];
-  }
-
-  return { l: sl / n, a: sa / n, b: sb / n };
 }

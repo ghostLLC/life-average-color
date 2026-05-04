@@ -1,6 +1,6 @@
 // src/color/extract.ts — K-means clustering to extract dominant colors from pixel data
 import kmeans from 'kmeans-ts';
-import { rgbToLab } from './lab';
+import { rgbToLab, averageLab } from './lab';
 import type { LabColor, ColorCluster } from '../types';
 
 /** Maximum number of pixel samples to feed into K-means */
@@ -21,7 +21,7 @@ export function extractDominantColors(
   height: number,
   k: number = 3,
 ): ColorCluster[] {
-  // --- 1. Sample pixels sparsely ---
+  // 1. Sample pixels sparsely
   const totalPixels = width * height;
   const stride = Math.max(1, Math.floor(totalPixels / MAX_SAMPLES));
 
@@ -41,7 +41,7 @@ export function extractDominantColors(
     samples.push([lab.l, lab.a, lab.b]);
   }
 
-  // --- 2. Edge case: not enough samples ---
+  // 2. Edge case: not enough samples
   if (samples.length === 0) {
     return [];
   }
@@ -55,10 +55,10 @@ export function extractDominantColors(
     return [{ color: avg, ratio: 1 }];
   }
 
-  // --- 3. Run K-means ---
+  // 3. Run K-means
   const result = kmeans(samples, effectiveK);
 
-  // --- 4. Build clusters with ratios ---
+  // 4. Build clusters with ratios
   const { centroids, indexes } = result;
   const clusterCounts = new Array<number>(effectiveK).fill(0);
 
@@ -76,20 +76,4 @@ export function extractDominantColors(
   clusters.sort((a, b) => b.ratio - a.ratio);
 
   return clusters;
-}
-
-/** Compute the simple mean of LAB vectors */
-function averageLab(samples: number[][]): LabColor {
-  const n = samples.length;
-  let sl = 0;
-  let sa = 0;
-  let sb = 0;
-
-  for (const s of samples) {
-    sl += s[0];
-    sa += s[1];
-    sb += s[2];
-  }
-
-  return { l: sl / n, a: sa / n, b: sb / n };
 }

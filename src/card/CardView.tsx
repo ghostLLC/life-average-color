@@ -10,13 +10,13 @@ import ViewShot, { ViewShotRef } from 'react-native-view-shot';
 
 import type { AnalysisResult } from '../types';
 
-// ── Public handle exposed via ref ────────────────────────────────────────────
+// -- Public handle exposed via ref --------------------------------------------
 
 export interface CardViewHandle {
   capture: () => Promise<string>;
 }
 
-// ── Props ───────────────────────────────────────────────────────────────────
+// -- Props -------------------------------------------------------------------
 
 export interface CardViewProps {
   gradientColors: string[];
@@ -25,12 +25,12 @@ export interface CardViewProps {
   onCapture?: (uri: string) => void;
 }
 
-// ── Dimensions ──────────────────────────────────────────────────────────────
+// -- Dimensions --------------------------------------------------------------
 
 const HORIZONTAL_PADDING = 48; // 24px on each side
 const ASPECT_RATIO = 1.6; // height = width * 1.6 (5:8 portrait)
 
-// ── Component ───────────────────────────────────────────────────────────────
+// -- Component ---------------------------------------------------------------
 
 function CardView(
   { gradientColors, timeLabel, caption, onCapture }: CardViewProps,
@@ -42,7 +42,13 @@ function CardView(
   const cardWidth = screenWidth - HORIZONTAL_PADDING;
   const cardHeight = cardWidth * ASPECT_RATIO;
 
-  // ── Expose imperative capture method ────────────────────────────────────
+  // Ensure at least 2 colors for LinearGradient (type-safe fallback)
+  const safeColors: readonly [string, string, ...string[]] =
+    gradientColors.length >= 2
+      ? (gradientColors as [string, string, ...string[]])
+      : (['#1a1a2e', '#16213e'] as const);
+
+  // -- Expose imperative capture method --------------------------------------
   useImperativeHandle(ref, () => ({
     capture: async () => {
       const uri = await viewShotRef.current?.capture();
@@ -60,7 +66,7 @@ function CardView(
       style={[styles.viewShot, { width: cardWidth, height: cardHeight }]}
     >
       <LinearGradient
-        colors={gradientColors as unknown as readonly [string, string, ...string[]]}
+        colors={safeColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.gradient}
@@ -75,12 +81,12 @@ function CardView(
   );
 }
 
-// ── Forward ref wrapper ─────────────────────────────────────────────────────
+// -- Forward ref wrapper -----------------------------------------------------
 
 const CardViewWithRef = forwardRef(CardView);
 export default CardViewWithRef;
 
-// ── CardPreview: convenience wrapper for AnalysisResult ─────────────────────
+// -- CardPreview: convenience wrapper for AnalysisResult ---------------------
 
 export interface CardPreviewProps {
   result: AnalysisResult;
@@ -103,7 +109,7 @@ export function CardPreview({ result, onCapture }: CardPreviewProps) {
   );
 }
 
-// ── Styles ──────────────────────────────────────────────────────────────────
+// -- Styles ------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   viewShot: {
@@ -118,9 +124,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
     paddingHorizontal: 24,
     paddingVertical: 20,
-    // Simulates frosted glass — subtle backdrop blur isn't natively
-    // available without ReactNavigation/blur views, but the semi-
-    // transparent dark overlay gives a similar effect.
   },
   timeLabel: {
     color: 'rgba(255, 255, 255, 0.75)',
