@@ -21,7 +21,8 @@
         "backgroundColor": "#1a1a2e"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.lifeaveragecolor"
     },
     "web": {
       "favicon": "./assets/favicon.png"
