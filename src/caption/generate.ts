@@ -5,17 +5,20 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 /**
  * Generate a poetic Chinese caption for a set of dominant colors.
  *
- * Calls the DeepSeek API with a carefully crafted system prompt that asks for
- * a short (≤20 char), warm, visually evocative one-liner — no quotes, just the
- * bare sentence.
+ * Calls the DeepSeek API with a system prompt that asks for
+ * a short (≤20 char), warm, visually evocative one-liner.
+ * Optionally incorporates the user's personal feeling/memory
+ * for richer, more personalized output.
  *
- * @param colorDescriptors  Array of color descriptions (e.g. hex codes like "#FF6B35").
+ * @param colorDescriptors  Array of color names/hex codes.
  * @param timeLabel         Human-readable time period, e.g. "2026年3月".
+ * @param userFeeling       Optional: user's impression / feeling about this period.
  * @returns                 The generated caption, or an empty string on failure.
  */
 export async function generateCaption(
   colorDescriptors: string[],
   timeLabel: string,
+  userFeeling?: string,
 ): Promise<string> {
   const apiKey = process.env.EXPO_PUBLIC_DEEPSEEK_API_KEY;
 
@@ -25,7 +28,13 @@ export async function generateCaption(
   }
 
   const colorList = colorDescriptors.join('、');
-  const prompt = `你是一位诗意文案写手。用户的${timeLabel}生活照片主色调是：${colorList}。请写一句话（20字以内），文艺、温暖、有画面感。不要加引号，只返回句子。`;
+
+  let prompt: string;
+  if (userFeeling && userFeeling.trim().length > 0) {
+    prompt = `你是一位诗意文案写手。用户的${timeLabel}生活照片主色调是：${colorList}。用户对这个时段的感受是："${userFeeling.trim()}"。请结合这份感受，写一句话（20字以内），文艺、温暖、有画面感。不要加引号，只返回句子。`;
+  } else {
+    prompt = `你是一位诗意文案写手。用户的${timeLabel}生活照片主色调是：${colorList}。请写一句话（20字以内），文艺、温暖、有画面感。不要加引号，只返回句子。`;
+  }
 
   try {
     const response = await fetch(DEEPSEEK_API_URL, {

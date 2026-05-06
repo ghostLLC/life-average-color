@@ -17,15 +17,15 @@
     "expo-media-library": "~18.2.1",
     "expo-sharing": "~14.0.8",
     "expo-status-bar": "~3.0.9",
-    "jpeg-js": "^0.4.4",
     "kmeans-ts": "^1.0.4",
-    "pngjs": "^7.0.0",
+    "pako": "^2.1.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-view-shot": "^5.0.0"
   },
   "devDependencies": {
     "@types/color-convert": "^2.0.4",
+    "@types/pako": "^2.0.4",
     "@types/pngjs": "^6.0.5",
     "@types/react": "~19.1.0",
     "typescript": "~5.9.2"

@@ -39,3 +39,14 @@ yarn-error.*
 
 # generated native folders
 /ios
+
+# IDE
+.idea/
+
+# AI assistant artifacts
+.claude/
+.deepseek/
+.omc/
+
+# Temporary build scripts
+_build.bat

@@ -1,4 +1,6 @@
 // src/types.ts — Shared type definitions for Life Average Color
+import type { NamedColor } from './color/nameColor';
+import type * as MediaLibrary from 'expo-media-library';
 
 /** LAB color representation */
 export interface LabColor {
@@ -20,13 +22,25 @@ export interface ColorCluster {
   ratio: number; // 0-1
 }
 
+/** A photo recommended as a best match for the average color palette */
+export interface RecommendedPhoto {
+  /** MediaLibrary asset URI */
+  uri: string;
+  /** Perceptual distance to the core palette (lower = better match) */
+  distance: number;
+}
+
 /** Full analysis result for a time period */
 export interface AnalysisResult {
   coreColors: LabColor[];
-  gradientColors: string[]; // CSS rgb() strings
+  gradientColors: string[]; // "#RRGGBB" hex strings
   timeLabel: string; // e.g. "2026年3月"
   caption: string; // AI-generated
   photoCount: number;
+  /** Named colors for social sharing (color swatches) */
+  namedColors: NamedColor[];
+  /** 0-3 photos that best match the average color palette */
+  recommendedPhotos: RecommendedPhoto[];
 }
 
 /** Time period for photo selection */
@@ -35,3 +49,5 @@ export interface TimePeriod {
   endDate: Date;
   label: string; // e.g. "2026年3月"
 }
+
+export type { NamedColor } from './color/nameColor';

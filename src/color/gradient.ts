@@ -3,19 +3,31 @@ import type { LabColor } from '../types';
 import { beautifyColors } from './beautify';
 import { labToRgb } from './lab';
 
+/** Clamp and format a channel value (0-255) to 2-digit hex */
+function toHex(v: number): string {
+  return Math.max(0, Math.min(255, Math.round(v)))
+    .toString(16)
+    .padStart(2, '0');
+}
+
+/** Convert an RGB object to a "#RRGGBB" hex string */
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 /**
- * Build a smooth gradient of CSS rgb() color strings from a set of core LAB colors.
+ * Build a smooth gradient of hex color strings from a set of core LAB colors.
  *
  * @param coreColors — 5 (or more) core LAB colors representing the palette
  * @param stops — number of color stops in the output gradient (default 12)
- * @returns array of "rgb(r,g,b)" strings forming the interpolated gradient
+ * @returns array of "#RRGGBB" strings forming the interpolated gradient
  *
  * Algorithm:
  *  1. Beautify the core colors
  *  2. Map each core color to an evenly-spread position along 0–1
  *  3. For each stop, find the two core colors it sits between
  *  4. Linear interpolation in LAB space
- *  5. Convert to RGB and format as "rgb(r,g,b)"
+ *  5. Convert to RGB and format as "#RRGGBB"
  */
 export function buildGradient(coreColors: LabColor[], stops: number = 12): string[] {
   // Edge case: no colors
@@ -27,8 +39,8 @@ export function buildGradient(coreColors: LabColor[], stops: number = 12): strin
   // Edge case: single color → repeat it for all stops
   if (beautified.length === 1) {
     const rgb = labToRgb(beautified[0].l, beautified[0].a, beautified[0].b);
-    const css = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-    return Array(stops).fill(css);
+    const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
+    return Array(stops).fill(hex);
   }
 
   // Step 2: Map each core color to its position (evenly spread 0–1)
@@ -73,9 +85,9 @@ export function buildGradient(coreColors: LabColor[], stops: number = 12): strin
       lab = interpolateLab(beautified[leftIdx], beautified[rightIdx], segmentT);
     }
 
-    // Convert to RGB and format
+    // Convert to hex
     const rgb = labToRgb(lab.l, lab.a, lab.b);
-    result.push(`rgb(${rgb.r},${rgb.g},${rgb.b})`);
+    result.push(rgbToHex(rgb.r, rgb.g, rgb.b));
   }
 
   return result;

@@ -7,14 +7,19 @@ import { extractDominantColors } from '../color/extract';
 import { synthesizeColorPalette } from '../color/synthesize';
 import { buildGradient } from '../color/gradient';
 import { labToRgb } from '../color/lab';
+import { nameColors } from '../color/nameColor';
 import { generateCaption } from '../caption/generate';
-import type { AnalysisResult, ColorCluster } from '../types';
+import type { AnalysisResult, ColorCluster, RecommendedPhoto } from '../types';
 
 // -- Types -------------------------------------------------------------------
 
 export interface UseColorResult {
   /** Run the full analysis pipeline against the given photos */
-  analyze: (photos: MediaLibrary.Asset[], timeLabel: string) => Promise<AnalysisResult>;
+  analyze: (
+    photos: MediaLibrary.Asset[],
+    timeLabel: string,
+    userFeeling?: string,
+  ) => Promise<AnalysisResult>;
   /** Whether analysis is currently in progress */
   loading: boolean;
   /** Error message if the last analysis failed, null otherwise */
@@ -30,6 +35,12 @@ export interface UseColorResult {
 // -- Concurrency pool --------------------------------------------------------
 
 const CONCURRENCY = 4; // parallel photo decode limit
+
+/** Result from processing a single photo */
+interface PhotoProcessResult {
+  asset: MediaLibrary.Asset;
+  clusters: ColorCluster[];
+}
 
 /**
  * Process items with bounded concurrency.
@@ -61,20 +72,18 @@ async function processWithConcurrency<T, R>(
     }
   };
 
-  // Spawn workers (bounded by concurrency)
   const workers = Array.from(
     { length: Math.min(concurrency, items.length) },
     () => worker(),
   );
   await Promise.all(workers);
 
-  // Filter out holes (aborted entries) and return
   return results.filter((_, i) => results[i] !== undefined);
 }
 
 // -- Helpers -----------------------------------------------------------------
 
-/** Convert a LabColor to a hex string like "FF6B35" */
+/** Convert a LabColor to a hex string like "FF6B35" (uppercase, no #) */
 function labToHex(l: number, a: number, b: number): string {
   const rgb = labToRgb(l, a, b);
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
@@ -82,15 +91,47 @@ function labToHex(l: number, a: number, b: number): string {
   return `${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`.toUpperCase();
 }
 
-// -- useColor hook -----------------------------------------------------------
+/** LAB distance between a cluster and a palette color */
+function labDist(
+  c1: { l: number; a: number; b: number },
+  c2: { l: number; a: number; b: number },
+): number {
+  const dl = c1.l - c2.l;
+  const da = c1.a - c2.a;
+  const db = c1.b - c2.b;
+  return Math.sqrt(dl * dl + da * da + db * db);
+}
 
 /**
- * Hook that encapsulates the full color-analysis pipeline.
- *
- * Usage:
- *   const { analyze, loading, error, clearError, abort, progress } = useColor();
- *   const result = await analyze(photos, "2026年3月");
+ * Compute a "match score" for a photo against the core palette.
+ * Lower = better match. Uses the minimum distance from any photo cluster
+ * to any palette color, weighted by cluster ratio.
  */
+function photoPaletteDistance(
+  clusters: ColorCluster[],
+  palette: { l: number; a: number; b: number }[],
+): number {
+  if (clusters.length === 0 || palette.length === 0) return Infinity;
+
+  let totalDist = 0;
+  let totalWeight = 0;
+
+  for (const cluster of clusters) {
+    // Find closest palette color to this cluster
+    let minDist = Infinity;
+    for (const p of palette) {
+      const d = labDist(cluster.color, p);
+      if (d < minDist) minDist = d;
+    }
+    totalDist += minDist * cluster.ratio;
+    totalWeight += cluster.ratio;
+  }
+
+  return totalWeight > 0 ? totalDist / totalWeight : Infinity;
+}
+
+// -- useColor hook -----------------------------------------------------------
+
 export function useColor(): UseColorResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +145,11 @@ export function useColor(): UseColorResult {
   }, []);
 
   const analyze = useCallback(
-    async (photos: MediaLibrary.Asset[], timeLabel: string): Promise<AnalysisResult> => {
+    async (
+      photos: MediaLibrary.Asset[],
+      timeLabel: string,
+      userFeeling?: string,
+    ): Promise<AnalysisResult> => {
       setLoading(true);
       setError(null);
       setProgress(null);
@@ -114,32 +159,33 @@ export function useColor(): UseColorResult {
 
       try {
         // -- Step 1: Decode each photo and extract dominant colors (parallel) --
-        const allClusters = await processWithConcurrency(
+        const photoResults = await processWithConcurrency(
           photos,
           CONCURRENCY,
-          async (photo): Promise<ColorCluster[]> => {
+          async (photo): Promise<PhotoProcessResult> => {
             const { pixels, width, height } = await decodeImageToPixels(photo.uri);
-            return extractDominantColors(pixels, width, height, 3);
+            const clusters = extractDominantColors(pixels, width, height, 3);
+            return { asset: photo, clusters };
           },
           (current, total) => setProgress({ current, total }),
           abortRef,
         );
 
-        // Filter out empty results and count successes
+        // Filter out empty results
         const allPhotoClusters: ColorCluster[][] = [];
-        for (const clusters of allClusters) {
-          if (clusters.length > 0) {
-            allPhotoClusters.push(clusters);
+        const successfulPhotos: PhotoProcessResult[] = [];
+        for (const r of photoResults) {
+          if (r.clusters.length > 0) {
+            allPhotoClusters.push(r.clusters);
+            successfulPhotos.push(r);
             processedCount++;
           }
         }
 
-        // If aborted, bail without error
         if (abortRef.current) {
           throw new Error('__ABORTED__');
         }
 
-        // -- Edge case: no usable photos --------------------------------------
         if (allPhotoClusters.length === 0) {
           throw new Error('没有可分析的照片');
         }
@@ -151,11 +197,27 @@ export function useColor(): UseColorResult {
         }
 
         // -- Step 3: Build gradient stops -------------------------------------
-        const gradientColors = buildGradient(coreColors, 12);
+        const gradientColors = buildGradient(coreColors, 8);
 
-        // -- Step 4: Generate caption -----------------------------------------
-        const colorDescriptors = coreColors.map((c) => labToHex(c.l, c.a, c.b));
-        const caption = await generateCaption(colorDescriptors, timeLabel);
+        // -- Step 4: Name the core colors (for social sharing) ----------------
+        const coreHexes = coreColors.map((c) => labToHex(c.l, c.a, c.b));
+        const namedColors = nameColors(coreHexes);
+
+        // -- Step 5: Find best-matching photos (0–3) -------------------------
+        const scored: { asset: MediaLibrary.Asset; distance: number }[] = [];
+        for (const r of successfulPhotos) {
+          const distance = photoPaletteDistance(r.clusters, coreColors);
+          scored.push({ asset: r.asset, distance });
+        }
+        // Sort by distance ascending (closest first), take top 3
+        scored.sort((a, b) => a.distance - b.distance);
+        const recommendedPhotos: RecommendedPhoto[] = scored
+          .slice(0, 3)
+          .map((s) => ({ uri: s.asset.uri, distance: s.distance }));
+
+        // -- Step 6: Generate caption (with optional user feeling) ------------
+        const colorDescriptors = coreHexes.map((h) => `#${h}`);
+        const caption = await generateCaption(colorDescriptors, timeLabel, userFeeling);
 
         const result: AnalysisResult = {
           coreColors,
@@ -163,11 +225,12 @@ export function useColor(): UseColorResult {
           timeLabel,
           caption: caption || `${timeLabel} 的生活底色`,
           photoCount: processedCount,
+          namedColors,
+          recommendedPhotos,
         };
 
         return result;
       } catch (err) {
-        // Silently propagate abort — no error UI needed
         if (err instanceof Error && err.message === '__ABORTED__') {
           throw err;
         }
