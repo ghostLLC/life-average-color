@@ -5,10 +5,22 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import LinearGradient from 'react-native-linear-gradient';
 import ViewShot, { ViewShotRef } from 'react-native-view-shot';
 
 import type { NamedColor } from '../types';
+
+/**
+ * Compute the position (0..1) of core color i along the diagonal gradient,
+ * then map to percentage-based top/left for absolute placement.
+ */
+function labelPosition(i: number, total: number) {
+  const pos = total <= 1 ? 0.5 : i / (total - 1);
+  return {
+    top: `${8 + pos * 55}%` as const,
+    left: `${8 + pos * 58}%` as const,
+  };
+}
 
 // -- Public handle exposed via ref --------------------------------------------
 
@@ -28,7 +40,7 @@ export interface CardViewProps {
 
 // -- Dimensions --------------------------------------------------------------
 
-const HORIZONTAL_PADDING = 48; // 24px on each side
+const HORIZONTAL_PADDING = 80; // 40px per side — card at ~80% screen width
 const ASPECT_RATIO = 1.6; // height = width * 1.6 (5:8 portrait)
 
 // -- Component ---------------------------------------------------------------
@@ -43,11 +55,11 @@ function CardView(
   const cardWidth = screenWidth - HORIZONTAL_PADDING;
   const cardHeight = cardWidth * ASPECT_RATIO;
 
-  // Ensure at least 2 colors for LinearGradient (type-safe fallback)
-  const safeColors: readonly [string, string, ...string[]] =
+  // Ensure at least 2 colors for LinearGradient
+  const safeColors: (string | number)[] =
     gradientColors.length >= 2
-      ? (gradientColors as [string, string, ...string[]])
-      : (['#1a1a2e', '#16213e'] as const);
+      ? gradientColors
+      : ['#1a1a2e', '#16213e'];
 
   // -- Expose imperative capture method --------------------------------------
   useImperativeHandle(ref, () => ({
@@ -72,20 +84,35 @@ function CardView(
         end={{ x: 1, y: 1 }}
         style={styles.gradient}
       >
-        {/* Color swatches at the top */}
-        {namedColors && namedColors.length > 0 && (
-          <View style={styles.swatchRow}>
-            {namedColors.map((nc, i) => (
-              <View key={i} style={styles.swatchItem}>
-                <View
-                  style={[styles.swatchDot, { backgroundColor: nc.hex }]}
-                />
-                <Text style={styles.swatchName}>{nc.name}</Text>
-                <Text style={styles.swatchHex}>{nc.hex}</Text>
+        {/* Core color labels — positioned on their gradient zones */}
+        {namedColors && namedColors.length > 0 && (() => {
+          const ratios = namedColors.map((nc) => nc.ratio ?? 1 / namedColors.length);
+          const maxRatio = Math.max(...ratios);
+          const minRatio = Math.min(...ratios);
+          const range = maxRatio - minRatio || 1;
+          return namedColors.map((nc, i) => {
+            const pos = labelPosition(i, namedColors.length);
+            const ratio = nc.ratio ?? 1 / namedColors.length;
+            const pct = Math.round(ratio * 100);
+            // Scale factor: dominant color gets 1.25, smallest gets 0.75
+            const scale = 0.75 + ((ratio - minRatio) / range) * 0.5;
+            const nameSize = Math.round(20 * scale);
+            const pctSize = Math.round(14 * scale);
+            return (
+              <View key={i} style={[styles.colorLabel, { top: pos.top, left: pos.left }]}>
+                <View style={styles.colorLabelRow}>
+                  <Text style={[styles.colorLabelName, { color: nc.hex, fontSize: nameSize }]}>
+                    {nc.name}
+                  </Text>
+                  <Text style={[styles.colorLabelPct, { color: nc.hex, fontSize: pctSize }]}>
+                    {pct}%
+                  </Text>
+                </View>
+                <Text style={[styles.colorLabelHex, { color: nc.hex }]}>{nc.hex}</Text>
               </View>
-            ))}
-          </View>
-        )}
+            );
+          });
+        })()}
 
         {/* Spacer pushes text overlay to bottom */}
         <View style={{ flex: 1 }} />
@@ -149,42 +176,41 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
-  // Swatches
-  swatchRow: {
+  // Color labels (absolutely positioned on gradient)
+  colorLabel: {
+    position: 'absolute',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  colorLabelRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    alignItems: 'baseline',
     gap: 6,
-    paddingTop: 18,
-    paddingHorizontal: 16,
-    flexWrap: 'wrap',
   },
-  swatchItem: {
-    alignItems: 'center',
-    minWidth: 52,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+  colorLabelName: {
+    fontWeight: '800',
+    letterSpacing: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
-  swatchDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginBottom: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  swatchName: {
-    color: '#ffffff',
-    fontSize: 11,
+  colorLabelPct: {
     fontWeight: '600',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+    opacity: 0.6,
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
   },
-  swatchHex: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 9,
+  colorLabelHex: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 1.5,
     marginTop: 2,
-    letterSpacing: 0.3,
+    opacity: 0.55,
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 5,
   },
   // Text overlay
   textOverlay: {

@@ -1,6 +1,14 @@
 // src/types.ts — Shared type definitions for Life Average Color
 import type { NamedColor } from './color/nameColor';
-import type * as MediaLibrary from 'expo-media-library';
+
+/** Photo asset returned by camera roll queries */
+export interface PhotoAsset {
+  uri: string;
+  filename: string;
+  width: number;
+  height: number;
+  creationTime: number;
+}
 
 /** LAB color representation */
 export interface LabColor {

@@ -1,22 +1,21 @@
 // src/hooks/useColor.ts — Full analysis pipeline: photos → AnalysisResult
 import { useState, useCallback, useRef } from 'react';
-import * as MediaLibrary from 'expo-media-library';
 
 import { decodeImageToPixels } from '../color/decodeImage';
 import { extractDominantColors } from '../color/extract';
-import { synthesizeColorPalette } from '../color/synthesize';
+import { synthesizeColorPalette, type SynthesizedColor } from '../color/synthesize';
 import { buildGradient } from '../color/gradient';
 import { labToRgb } from '../color/lab';
-import { nameColors } from '../color/nameColor';
+import { nameColor, type NamedColor } from '../color/nameColor';
 import { generateCaption } from '../caption/generate';
-import type { AnalysisResult, ColorCluster, RecommendedPhoto } from '../types';
+import type { AnalysisResult, ColorCluster, RecommendedPhoto, PhotoAsset, LabColor } from '../types';
 
 // -- Types -------------------------------------------------------------------
 
 export interface UseColorResult {
   /** Run the full analysis pipeline against the given photos */
   analyze: (
-    photos: MediaLibrary.Asset[],
+    photos: PhotoAsset[],
     timeLabel: string,
     userFeeling?: string,
   ) => Promise<AnalysisResult>;
@@ -38,7 +37,7 @@ const CONCURRENCY = 4; // parallel photo decode limit
 
 /** Result from processing a single photo */
 interface PhotoProcessResult {
-  asset: MediaLibrary.Asset;
+  uri: string;
   clusters: ColorCluster[];
 }
 
@@ -89,6 +88,76 @@ function labToHex(l: number, a: number, b: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
   const toHex = (v: number) => clamp(v).toString(16).padStart(2, '0');
   return `${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`.toUpperCase();
+}
+
+/**
+ * Pick a merge threshold adapted to the palette's chroma.
+ */
+function adaptiveMergeThreshold(
+  items: SynthesizedColor[],
+): number {
+  if (items.length <= 1) return 25;
+  let nearNeutral = 0;
+  for (const { color: c } of items) {
+    const chroma = Math.sqrt(c.a * c.a + c.b * c.b);
+    if (chroma < 12) nearNeutral++;
+  }
+  if (nearNeutral >= 2) return 30;
+  return 18;
+}
+
+/**
+ * Merge similar colors, summing their ratios.
+ */
+function mergeCloseColors(
+  items: SynthesizedColor[],
+  threshold: number,
+): SynthesizedColor[] {
+  if (items.length <= 1) return items.map((s) => ({ ...s }));
+  const remaining = items.map((s) => ({ color: { ...s.color }, ratio: s.ratio }));
+
+  while (remaining.length > 1) {
+    let minDist = Infinity;
+    let mi = 0;
+    let mj = 0;
+    for (let i = 0; i < remaining.length; i++) {
+      for (let j = i + 1; j < remaining.length; j++) {
+        const d = labDist(remaining[i].color, remaining[j].color);
+        if (d < minDist) { minDist = d; mi = i; mj = j; }
+      }
+    }
+    if (minDist >= threshold) break;
+    const totalRatio = remaining[mi].ratio + remaining[mj].ratio;
+    remaining[mi] = {
+      color: {
+        l: (remaining[mi].color.l + remaining[mj].color.l) / 2,
+        a: (remaining[mi].color.a + remaining[mj].color.a) / 2,
+        b: (remaining[mi].color.b + remaining[mj].color.b) / 2,
+      },
+      ratio: totalRatio,
+    };
+    remaining.splice(mj, 1);
+  }
+  return remaining;
+}
+
+/**
+ * Select recommended photos adaptively.
+ * Only includes photos whose palette distance is reasonably close to the best.
+ */
+function selectRecommendedPhotos(
+  scored: { uri: string; distance: number }[],
+): RecommendedPhoto[] {
+  if (scored.length === 0) return [];
+  const best = scored[0].distance;
+  // If the best match is still a poor fit, don't recommend any
+  if (best > 50) return [];
+  // Allow photos within 2× the best distance, capped at 3
+  const threshold = Math.max(best * 2, 20);
+  return scored
+    .filter((s) => s.distance <= threshold)
+    .slice(0, 3)
+    .map((s) => ({ uri: s.uri, distance: s.distance }));
 }
 
 /** LAB distance between a cluster and a palette color */
@@ -146,7 +215,7 @@ export function useColor(): UseColorResult {
 
   const analyze = useCallback(
     async (
-      photos: MediaLibrary.Asset[],
+      photos: PhotoAsset[],
       timeLabel: string,
       userFeeling?: string,
     ): Promise<AnalysisResult> => {
@@ -165,7 +234,7 @@ export function useColor(): UseColorResult {
           async (photo): Promise<PhotoProcessResult> => {
             const { pixels, width, height } = await decodeImageToPixels(photo.uri);
             const clusters = extractDominantColors(pixels, width, height, 3);
-            return { asset: photo, clusters };
+            return { uri: photo.uri, clusters };
           },
           (current, total) => setProgress({ current, total }),
           abortRef,
@@ -191,29 +260,41 @@ export function useColor(): UseColorResult {
         }
 
         // -- Step 2: Synthesize cross-photo palette ---------------------------
-        const coreColors = synthesizeColorPalette(allPhotoClusters, 5);
-        if (coreColors.length === 0) {
+        const rawColors = synthesizeColorPalette(allPhotoClusters, 3);
+        if (rawColors.length === 0) {
           throw new Error('无法生成调色板');
         }
 
+        // -- Step 2b: Deduplicate — merge colors that are too close -----------
+        const mergeThreshold = adaptiveMergeThreshold(rawColors);
+        const mergedColors = mergeCloseColors(rawColors, mergeThreshold);
+        // Normalize ratios after merge
+        const totalRatio = mergedColors.reduce((s, c) => s + c.ratio, 0);
+        const finalColors = mergedColors.map((c) => ({
+          ...c,
+          ratio: totalRatio > 0 ? c.ratio / totalRatio : 1 / mergedColors.length,
+        }));
+        const coreColors: LabColor[] = finalColors.map((c) => c.color);
+        const coreRatios: number[] = finalColors.map((c) => c.ratio);
+
         // -- Step 3: Build gradient stops -------------------------------------
-        const gradientColors = buildGradient(coreColors, 8);
+        const gradientColors = buildGradient(coreColors, 8, coreRatios);
 
-        // -- Step 4: Name the core colors (for social sharing) ----------------
+        // -- Step 4: Name the core colors (with ratios) -----------------------
         const coreHexes = coreColors.map((c) => labToHex(c.l, c.a, c.b));
-        const namedColors = nameColors(coreHexes);
+        const namedColors: NamedColor[] = coreHexes.map((h, i) => ({
+          ...nameColor(h),
+          ratio: coreRatios[i],
+        }));
 
-        // -- Step 5: Find best-matching photos (0–3) -------------------------
-        const scored: { asset: MediaLibrary.Asset; distance: number }[] = [];
+        // -- Step 5: Find best-matching photos (0–3, adaptive) ----------------
+        const scored: { uri: string; distance: number }[] = [];
         for (const r of successfulPhotos) {
           const distance = photoPaletteDistance(r.clusters, coreColors);
-          scored.push({ asset: r.asset, distance });
+          scored.push({ uri: r.uri, distance });
         }
-        // Sort by distance ascending (closest first), take top 3
         scored.sort((a, b) => a.distance - b.distance);
-        const recommendedPhotos: RecommendedPhoto[] = scored
-          .slice(0, 3)
-          .map((s) => ({ uri: s.asset.uri, distance: s.distance }));
+        const recommendedPhotos = selectRecommendedPhotos(scored);
 
         // -- Step 6: Generate caption (with optional user feeling) ------------
         const colorDescriptors = coreHexes.map((h) => `#${h}`);

@@ -3,31 +3,25 @@ import kmeans from 'kmeans-ts';
 import { averageLab } from './lab';
 import type { LabColor, ColorCluster } from '../types';
 
-/**
- * Multiplier to convert cluster ratios into discrete sample counts.
- * Ratio 1.0 → SAMPLE_WEIGHT samples. Keeps array sizes manageable
- * while providing enough resolution for weighted K-means.
- */
+/** A synthesized color with its proportion in the final palette */
+export interface SynthesizedColor {
+  color: LabColor;
+  ratio: number; // 0-1
+}
+
 const SAMPLE_WEIGHT = 100;
 
 /**
  * Synthesize a cross-photo color palette by running weighted K-means
  * across the dominant color clusters of all photos.
  *
- * Each cluster is weighted by its ratio so that dominant colors in a photo
- * contribute more samples than minor accent colors. The result is a palette
- * of the most representative colors across the entire photo set.
- *
- * @param allPhotoClusters  Array of per-photo cluster arrays (each inner array
- *                          comes from extractDominantColors).
- * @param targetColors      Desired number of colors in the output palette (default 5).
- * @returns                 Array of LabColor representing the synthesized palette,
- *                          sorted by lightness descending. Returns [] on empty input.
+ * Returns colors with their proportion (ratio) based on cluster sizes.
+ * Sorted by lightness descending. Returns [] on empty input.
  */
 export function synthesizeColorPalette(
   allPhotoClusters: ColorCluster[][],
   targetColors: number = 5,
-): LabColor[] {
+): SynthesizedColor[] {
   // 1. Collect weighted samples from all clusters
   const samples: number[][] = [];
 
@@ -43,32 +37,33 @@ export function synthesizeColorPalette(
     }
   }
 
-  // 2. Edge case: no samples at all
-  if (samples.length === 0) {
-    return [];
-  }
+  if (samples.length === 0) return [];
 
-  // 3. Adjust target K downward if we have too few samples
+  // 2. Adjust target K downward if needed
   const effectiveK = Math.min(targetColors, samples.length);
 
-  // Single color — compute the simple mean of all weighted samples
   if (effectiveK <= 1) {
     const avg = averageLab(samples);
-    return [avg];
+    return [{ color: avg, ratio: 1 }];
   }
 
-  // 4. Run K-means on the consolidated sample set
+  // 3. Run K-means
   const result = kmeans(samples, effectiveK);
 
-  // 5. Build output palette from centroids
-  const palette: LabColor[] = result.centroids.map((centroid) => ({
-    l: centroid[0],
-    a: centroid[1],
-    b: centroid[2],
+  // 4. Build palette with ratios from cluster sizes
+  const counts = new Array<number>(effectiveK).fill(0);
+  for (const idx of result.indexes) {
+    counts[idx]++;
+  }
+  const total = result.indexes.length;
+
+  const palette: SynthesizedColor[] = result.centroids.map((centroid, i) => ({
+    color: { l: centroid[0], a: centroid[1], b: centroid[2] },
+    ratio: counts[i] / total,
   }));
 
-  // 6. Sort by lightness descending for a natural reading order
-  palette.sort((a, b) => b.l - a.l);
+  // 5. Sort by lightness descending
+  palette.sort((a, b) => b.color.l - a.color.l);
 
   return palette;
 }

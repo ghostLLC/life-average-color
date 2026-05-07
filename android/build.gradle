@@ -1,14 +1,25 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
+// Set ext properties BEFORE plugin application — legacy libraries (react-native-fs,
+// react-native-linear-gradient, etc.) read rootProject.ext for SDK versions.
+ext {
+    compileSdkVersion = 36
+    targetSdkVersion = 36
+    minSdkVersion = 24
+    buildToolsVersion = "36.0.0"
+    ndkVersion = "27.1.12297006"
+    kotlinVersion = "2.1.20"
+}
+
 buildscript {
   repositories {
     google()
     mavenCentral()
   }
   dependencies {
-    classpath('com.android.tools.build:gradle')
-    classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    classpath(libs.android.gradle.plugin)
+    classpath(libs.reactNative.gradle.plugin)
+    classpath(libs.kotlin.gradle.plugin)
   }
 }
 
@@ -20,5 +31,4 @@ allprojects {
   }
 }
 
-apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

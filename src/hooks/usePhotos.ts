@@ -1,43 +1,56 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import * as MediaLibrary from 'expo-media-library';
-import { TimePeriod } from '../types';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import type { TimePeriod, PhotoAsset } from '../types';
 
 export interface UsePhotosResult {
-  /** Current permission status, or null if not yet checked */
-  permission: MediaLibrary.PermissionResponse | null;
-  /** Request photo library permission from the user */
-  requestPermission: () => Promise<MediaLibrary.PermissionResponse>;
-  /** Fetched photo assets matching the time period */
-  photos: MediaLibrary.Asset[];
-  /** Whether photos are currently being loaded */
+  permission: boolean | null;
+  requestPermission: () => Promise<boolean>;
+  photos: PhotoAsset[];
   loading: boolean;
-  /** Manually trigger a reload of photos for the current time period */
   reload: () => Promise<void>;
 }
 
-/**
- * Hook to manage photo library permission and fetch photos within a time period.
- *
- * On mount, checks current permission status. If already granted, automatically
- * loads photos for the given TimePeriod. Use `reload()` to refresh after date
- * changes, and `requestPermission()` to prompt the user when permission is denied.
- */
+async function checkPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  if (Platform.Version >= 33) {
+    return PermissionsAndroid.check('android.permission.READ_MEDIA_IMAGES');
+  }
+  return PermissionsAndroid.check('android.permission.READ_EXTERNAL_STORAGE');
+}
+
+async function requestPermissionImpl(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  const permission = Platform.Version >= 33
+    ? 'android.permission.READ_MEDIA_IMAGES'
+    : 'android.permission.READ_EXTERNAL_STORAGE';
+  const result = await PermissionsAndroid.request(permission as any);
+  return result === 'granted';
+}
+
 export function usePhotos({ startDate, endDate }: TimePeriod): UsePhotosResult {
-  const [permission, setPermission] = useState<MediaLibrary.PermissionResponse | null>(null);
-  const [photos, setPhotos] = useState<MediaLibrary.Asset[]>([]);
+  const [permission, setPermission] = useState<boolean | null>(null);
+  const [photos, setPhotos] = useState<PhotoAsset[]>([]);
   const [loading, setLoading] = useState(false);
 
   const loadPhotos = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await MediaLibrary.getAssetsAsync({
+      const result = await CameraRoll.getPhotos({
         first: 500,
-        createdAfter: startDate.getTime(),
-        createdBefore: endDate.getTime(),
-        mediaType: 'photo',
-        sortBy: [MediaLibrary.SortBy.creationTime],
+        assetType: 'Photos',
+        fromTime: startDate.getTime(),
+        toTime: endDate.getTime(),
+        include: ['filename', 'imageSize'],
       });
-      setPhotos(result.assets);
+      const assets: PhotoAsset[] = result.edges.map((edge) => ({
+        uri: edge.node.image.uri,
+        filename: edge.node.image.filename || '',
+        width: edge.node.image.width,
+        height: edge.node.image.height,
+        creationTime: edge.node.timestamp * 1000,
+      }));
+      setPhotos(assets);
     } catch (error) {
       console.error('Failed to load photos:', error);
       setPhotos([]);
@@ -46,36 +59,33 @@ export function usePhotos({ startDate, endDate }: TimePeriod): UsePhotosResult {
     }
   }, [startDate, endDate]);
 
-  // Keep a ref to the latest loadPhotos so the mount effect always calls the
-  // current version (with the correct startDate/endDate in closure).
   const loadPhotosRef = useRef(loadPhotos);
   loadPhotosRef.current = loadPhotos;
 
   const requestPermission = useCallback(async () => {
-    const response = await MediaLibrary.requestPermissionsAsync();
-    setPermission(response);
-    return response;
+    const granted = await requestPermissionImpl();
+    setPermission(granted);
+    return granted;
   }, []);
 
   const reload = useCallback(async () => {
     await loadPhotos();
   }, [loadPhotos]);
 
-  // On mount: check existing permission. If already granted, auto-load photos.
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const response = await MediaLibrary.getPermissionsAsync();
+      const granted = await checkPermission();
       if (!mounted) return;
-      setPermission(response);
-      if (response.granted) {
+      setPermission(granted);
+      if (granted) {
         await loadPhotosRef.current();
       }
     })();
     return () => {
       mounted = false;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return { permission, requestPermission, photos, loading, reload };
 }

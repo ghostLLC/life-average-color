@@ -1,0 +1,9 @@
+[versions]
+agp = "8.11.0"
+kotlin = "2.1.20"
+react-native-gradle-plugin = "0.81.5"
+
+[libraries]
+android-gradle-plugin = { module = "com.android.tools.build:gradle", version.ref = "agp" }
+reactNative-gradle-plugin = { module = "com.facebook.react:react-native-gradle-plugin", version.ref = "react-native-gradle-plugin" }
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }

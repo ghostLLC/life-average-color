@@ -1,6 +1,7 @@
 // src/color/decodeImage.ts — Decode image files to raw RGBA pixel data
-// Uses expo-image-manipulator + pako (pure JS zlib) — no Node.js dependencies.
-import * as ImageManipulator from 'expo-image-manipulator';
+// Uses @bam.tech/react-native-image-resizer + react-native-fs + pako (pure JS zlib).
+import ImageResizer from '@bam.tech/react-native-image-resizer';
+import RNFS from 'react-native-fs';
 import { inflate } from 'pako';
 
 export interface DecodedImage {
@@ -162,28 +163,22 @@ function decodePNG(data: Uint8Array): DecodedImage {
 /**
  * Decode a local image URI into raw RGBA pixel data.
  *
- * Uses expo-image-manipulator to resize + convert to PNG, then decodes
- * with pako (pure-JS zlib) + manual PNG unfilter. No Node.js dependencies.
+ * Uses @bam.tech/react-native-image-resizer + react-native-fs for thumbnail,
  */
 export async function decodeImageToPixels(uri: string): Promise<DecodedImage> {
-  // Step 1: Resize to thumbnail and get base64 PNG
-  const manipResult = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: 200 } }],
-    { format: ImageManipulator.SaveFormat.PNG, base64: true },
-  );
+  // Step 1: Resize to thumbnail via ImageResizer
+  const resized = await ImageResizer.createResizedImage(uri, 200, 9999, 'PNG', 100, 0, undefined);
 
-  if (!manipResult.base64) {
-    throw new Error('ImageManipulator returned no base64 data');
-  }
+  // Step 2: Read resized file as base64
+  const base64 = await RNFS.readFile(resized.path, 'base64');
 
-  // Step 2: Convert base64 to Uint8Array (no Buffer needed)
-  const binaryString = atob(manipResult.base64);
+  // Step 3: Convert base64 to Uint8Array
+  const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
 
-  // Step 3: Decode PNG
+  // Step 4: Decode PNG
   return decodePNG(bytes);
 }

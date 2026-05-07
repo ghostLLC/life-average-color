@@ -121,6 +121,7 @@ function labDistance(a: LabColor, b: LabColor): number {
 export interface NamedColor {
   hex: string;     // e.g. "#E63946"
   name: string;    // e.g. "胭脂"
+  ratio?: number;  // 0-1, proportion of this color in the palette (optional)
 }
 
 /**

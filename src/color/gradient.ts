@@ -18,37 +18,49 @@ function rgbToHex(r: number, g: number, b: number): string {
 /**
  * Build a smooth gradient of hex color strings from a set of core LAB colors.
  *
- * @param coreColors — 5 (or more) core LAB colors representing the palette
- * @param stops — number of color stops in the output gradient (default 12)
+ * @param coreColors — core LAB colors (sorted by lightness)
+ * @param stops — number of color stops in the output gradient
+ * @param ratios — proportion of each core color (optional, defaults to equal)
  * @returns array of "#RRGGBB" strings forming the interpolated gradient
  *
  * Algorithm:
  *  1. Beautify the core colors
- *  2. Map each core color to an evenly-spread position along 0–1
+ *  2. Position each core color by cumulative ratio (proportional to dominance)
  *  3. For each stop, find the two core colors it sits between
  *  4. Linear interpolation in LAB space
  *  5. Convert to RGB and format as "#RRGGBB"
  */
-export function buildGradient(coreColors: LabColor[], stops: number = 12): string[] {
-  // Edge case: no colors
+export function buildGradient(
+  coreColors: LabColor[],
+  stops: number = 12,
+  ratios?: number[],
+): string[] {
   if (coreColors.length === 0) return [];
 
   // Step 1: Beautify
   const beautified = beautifyColors(coreColors);
 
-  // Edge case: single color → repeat it for all stops
   if (beautified.length === 1) {
     const rgb = labToRgb(beautified[0].l, beautified[0].a, beautified[0].b);
     const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
     return Array(stops).fill(hex);
   }
 
-  // Step 2: Map each core color to its position (evenly spread 0–1)
-  const positions: number[] = [];
+  // Step 2: Position each core color by its cumulative ratio
+  // Dominant colors get more gradient real estate.
   const n = beautified.length;
+  const r = ratios && ratios.length === n ? ratios : new Array(n).fill(1 / n);
+  // Place each color at the midpoint of its ratio block: cum_sum_before + ratio/2
+  const positions: number[] = [];
+  let cumulative = 0;
   for (let i = 0; i < n; i++) {
-    // Even spread: first at 0, last at 1
-    positions.push(n === 1 ? 0.5 : i / (n - 1));
+    positions.push(cumulative + r[i] / 2);
+    cumulative += r[i];
+  }
+  // Normalize to 0–1 (in case of floating point drift)
+  const maxPos = positions[n - 1];
+  for (let i = 0; i < n; i++) {
+    positions[i] /= maxPos;
   }
 
   // Helper: linearly interpolate between two LAB colors
