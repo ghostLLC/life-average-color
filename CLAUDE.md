@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-"生活平均色" (Life Average Color) — a React Native 0.81 Android app that extracts dominant colors from photos within a selected time period, synthesizes a cross-photo color palette, and generates a shareable gradient card with AI-generated captions.
+"生活平均色" (Life Average Color) — a React Native 0.81 Android app that extracts dominant colors from photos within a selected time period, synthesizes a cross-photo color palette, and generates a shareable poster with AI-generated captions.
 
 ## Build & development
 
@@ -64,6 +64,23 @@ usePhotos (CameraRoll.getPhotos)
 
 `selectRecommendedPhotos`: best photo within 2× distance of the closest match, capped at 3. If closest photo has distance > 50, returns nothing.
 
+### Visual design system
+
+Light warm-minimalist theme — not dark mode.
+
+| Token | Value | Usage |
+|---|---|---|
+| Page background | `#F8F5F0` | SafeAreaView, scroll views |
+| Card surface | `#FFFFFF` | Dialogs, input backgrounds, history cards |
+| Primary text | `#1C1C1E` | Titles, labels |
+| Secondary text | `rgba(28,28,30,0.45)` | Descriptions, hints |
+| Muted text | `rgba(28,28,30,0.25)` | Placeholders, disabled states |
+| Accent | `#C9745B` (warm coral) | Primary buttons, toggles, progress bars |
+| Border | `rgba(0,0,0,0.06)` | Card borders, dividers |
+| Status bar | `dark-content` | Matches light background |
+
+Individual components (PeriodSelector, PhotoPicker, CustomDatePicker, Dialog) use these same tokens. The gradient card and poster backgrounds remain colorful — only the surrounding UI is light.
+
 ### Key native libraries
 
 | Library | Replaces | Notes |
@@ -86,12 +103,31 @@ usePhotos (CameraRoll.getPhotos)
 
 ### App.tsx state machine
 
-- **Home** (`!hasResult`): title + subtitle + PeriodSelector + Analyze button + history carousel
-- **PhotoPicker** (`showPicker`): Modal with OCR auto-scan, green/red border real-time feedback, select/deselect
-- **Analyzing** (`analyzing`): AnalysisAnimation component with phase-based narrative
-- **Result** (`hasResult && result`): gradient card + recommended photos + feeling input + share/save
+- **Home** (`!hasResult`): title (per-character gradient colors) + PeriodSelector (today/week/month/year/custom) + Analyze button (grayed out for cached periods) + history carousel (mini poster previews)
+- **PhotoPicker** (`showPicker`): Modal with OCR auto-scan, green/red border real-time feedback, select/deselect, guidance banner
+- **Analyzing** (`analyzing`): AnalysisAnimation (continuous particle convergence, no text)
+- **Result** (`hasResult && result`): gradient card + recommended photos + feeling input + share/save buttons + poster photo toggle
 - **Poster modal** (`showPoster`): full-screen poster preview + save-to-gallery
 
-Cached results stored in `resultCache` (Map<string,AnalysisResult>) — switching to a previously-analyzed period grays out the analyze button. History carousel cards jump directly to cached results.
+Cached results stored in `resultCache` (Map<string,AnalysisResult>) — switching to a previously-analyzed period grays out the analyze button with "已生成报告". History carousel cards jump directly to cached results.
 
-Back gesture (Android): `BackHandler` intercepts at poster → picker → result → exit, in priority order.
+Back gesture (Android): `BackHandler` intercepts at poster → picker → result → exit, in priority order. Save/share operations return to home after completion.
+
+### Custom UI components (src/components/)
+
+- **Dialog** — Dark-theme modal with spring-scale entrance animation, replaces `Alert.alert`
+- **Toast** — Centered auto-dismissing notification, replaces success/error alerts
+- **CustomDatePicker** — Scroll-wheel date picker (FlatList + snap), dark-themed bottom sheet
+- **AnalysisAnimation** — 20 independently-animated color particles with orbital motion, convergence as progress increases. Pure visual, no text overlay.
+- **PeriodSelector** — Period preset pills + navigation arrows + custom date range inputs
+- **PhotoPicker** — Full-screen modal, 3-column photo grid, OCR status borders, guidance banner, select-all button
+- **Poster** — Branded shareable image: gradient background + floating color labels + time/caption overlay + optional recommended photos
+
+### CardView/Poster alignment
+
+Both share identical color label positioning via `labelPosition(i, total)`:
+```
+pos = total <= 1 ? 0.5 : i / (total - 1)
+top = 8 + pos * 55%, left = 8 + pos * 58%
+```
+Poster is effectively a scaled-up CardView with branding, optional photos, and a watermark (hidden when photos are shown).

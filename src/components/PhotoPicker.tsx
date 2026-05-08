@@ -8,12 +8,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  Alert,
   StatusBar,
   Platform,
 } from 'react-native';
 
 import type { PhotoAsset } from '../types';
+import Toast from './Toast';
+import Dialog from './Dialog';
 
 export interface PhotoPickerProps {
   visible: boolean;
@@ -41,6 +42,11 @@ function PhotoPicker({
     () => new Set(photos.map((p) => p.uri)),
   );
   const [showBanner, setShowBanner] = useState(true);
+  const [toastMsg, setToastMsg] = useState('');
+  const [toastVis, setToastVis] = useState(false);
+  const showToast = (msg: string) => { setToastMsg(msg); setToastVis(true); };
+  const [ocrDialogVis, setOcrDialogVis] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(false);
 
   // Reset banner when picker opens, but keep it visible until manually dismissed
   React.useEffect(() => {
@@ -87,35 +93,22 @@ function PhotoPicker({
     setSelectedSet(new Set(photos.map((p) => p.uri)));
   }, [photos]);
 
-  const handleConfirm = useCallback(() => {
-    // If OCR is still scanning, ask for confirmation
-    if (ocrLoading) {
-      Alert.alert(
-        '筛选还在进行中',
-        'OCR 智能识别速度很快，建议等全部扫描完成后再开始分析，效果会更好。\n\n确定现在就开始分析吗？',
-        [
-          { text: '再等等', style: 'cancel' },
-          { text: '立即分析', onPress: () => {
-            const selected = photos.filter((p) => selectedSet.has(p.uri));
-            if (selected.length === 0) {
-              Alert.alert('提示', '请至少选择一张照片');
-              return;
-            }
-            onConfirm(selected);
-          }},
-        ],
-        { cancelable: true },
-      );
-      return;
-    }
-
+  const doConfirm = useCallback(() => {
     const selected = photos.filter((p) => selectedSet.has(p.uri));
     if (selected.length === 0) {
-      Alert.alert('提示', '请至少选择一张照片');
+      showToast('请至少选择一张照片');
       return;
     }
     onConfirm(selected);
-  }, [photos, selectedSet, onConfirm, ocrLoading]);
+  }, [photos, selectedSet, onConfirm]);
+
+  const handleConfirm = useCallback(() => {
+    if (ocrLoading) {
+      setOcrDialogVis(true);
+      return;
+    }
+    doConfirm();
+  }, [ocrLoading, doConfirm]);
 
   const renderItem = useCallback(
     ({ item }: { item: PhotoAsset }) => {
@@ -165,6 +158,18 @@ function PhotoPicker({
       onRequestClose={onCancel}
     >
       <SafeAreaView style={styles.safe}>
+        {/* Toast / Dialog */}
+        <Toast message={toastMsg} visible={toastVis} onDone={() => setToastVis(false)} />
+        <Dialog
+          visible={ocrDialogVis}
+          title="筛选还在进行中"
+          message="OCR 智能识别速度很快，建议等全部扫描完成后再开始分析，效果会更好。"
+          confirmText="立即分析"
+          cancelText="再等等"
+          onConfirm={() => { setOcrDialogVis(false); doConfirm(); }}
+          onCancel={() => setOcrDialogVis(false)}
+        />
+
         {/* Header — with platform-aware top margin */}
         <View style={[styles.header, { marginTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 32) : 0 }]}>
           <TouchableOpacity onPress={onCancel} style={styles.headerButton}>
@@ -257,7 +262,7 @@ function PhotoPicker({
 const ITEM_SIZE = 120;
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#1a1a2e' },
+  safe: { flex: 1, backgroundColor: '#F8F5F0' },
 
   header: {
     flexDirection: 'row',
@@ -266,12 +271,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   headerButton: { minWidth: 60 },
-  headerButtonText: { color: 'rgba(255,255,255,0.6)', fontSize: 16 },
-  headerTitle: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  headerConfirmText: { color: '#e94560', fontSize: 16, fontWeight: '600', textAlign: 'right' },
+  headerButtonText: { color: 'rgba(28,28,30,0.45)', fontSize: 16 },
+  headerTitle: { color: '#1C1C1E', fontSize: 16, fontWeight: '600' },
+  headerConfirmText: { color: '#C9745B', fontSize: 16, fontWeight: '600', textAlign: 'right' },
 
   // Banner
   banner: {
@@ -286,8 +291,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   bannerContent: { flex: 1, gap: 4 },
-  bannerTitle: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
-  bannerText: { color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 16 },
+  bannerTitle: { color: '#C9745B', fontSize: 13, fontWeight: '700' },
+  bannerText: { color: 'rgba(28,28,30,0.5)', fontSize: 11, lineHeight: 16 },
   bannerClose: {
     paddingLeft: 10,
     paddingVertical: 4,
@@ -302,7 +307,7 @@ const styles = StyleSheet.create({
   },
   ocrBarFill: {
     height: '100%',
-    backgroundColor: '#e94560',
+    backgroundColor: '#C9745B',
     borderRadius: 1,
   },
 
@@ -313,16 +318,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: 'rgba(0,0,0,0.02)',
   },
   ocrSummaryDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#e94560',
+    backgroundColor: '#C9745B',
   },
   ocrSummaryText: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(28,28,30,0.4)',
     fontSize: 11,
   },
 
@@ -347,7 +352,7 @@ const styles = StyleSheet.create({
     margin: 2,
     borderRadius: 10,
     overflow: 'visible',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(0,0,0,0.03)',
   },
   photoInner: {
     flex: 1,
@@ -371,7 +376,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  scanBadgeText: { color: '#ffffff', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  scanBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
 
   // Checkbox
   checkbox: {
@@ -382,30 +387,30 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.5)',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderColor: 'rgba(28,28,30,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxSelected: {
-    borderColor: '#e94560',
-    backgroundColor: '#e94560',
+    borderColor: '#C9745B',
+    backgroundColor: '#C9745B',
   },
-  checkmark: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  checkmark: { color: '#1C1C1E', fontSize: 14, fontWeight: '700' },
 
   footer: {
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: 'rgba(0,0,0,0.05)',
   },
   confirmButton: {
-    backgroundColor: '#e94560',
+    backgroundColor: '#C9745B',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
   },
-  confirmText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
+  confirmText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 });
 
 export default PhotoPicker;

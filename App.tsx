@@ -6,7 +6,6 @@ import {
   Text,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   StyleSheet,
   TextInput,
   Image,
@@ -14,6 +13,7 @@ import {
   StatusBar,
   Animated,
   BackHandler,
+  Easing,
 } from 'react-native';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import RNShare from 'react-native-share';
@@ -28,9 +28,27 @@ import PhotoPicker from './src/components/PhotoPicker';
 import PosterWithRef, { type PosterHandle } from './src/components/Poster';
 import PeriodSelector, { type PeriodType } from './src/components/PeriodSelector';
 import AnalysisAnimation from './src/components/AnalysisAnimation';
+import Toast from './src/components/Toast';
+import Dialog from './src/components/Dialog';
 import type { AnalysisResult, TimePeriod, PhotoAsset } from './src/types';
 
 // -- Helpers ------------------------------------------------------------------
+
+const TITLE_COLORS = [
+  '#C9745B', '#D4916A', '#9B8EC4', '#7BA5C8', '#6DB5A0', '#E0A87D',
+  '#8CB896', '#B8956E', '#A891B0', '#D4856B', '#8AA4B8', '#CC9C7C',
+  '#918BB0', '#C28E8A', '#8DA0B5', '#A0B880',
+];
+
+function charColor(index: number): string {
+  const day = new Date().getDate();
+  return TITLE_COLORS[(index * 3 + day) % TITLE_COLORS.length];
+}
+
+function subColor(index: number): string {
+  const day = new Date().getDate();
+  return TITLE_COLORS[(index * 2 + day + 5) % TITLE_COLORS.length];
+}
 
 const now = new Date();
 const THIS_YEAR = now.getFullYear();
@@ -115,19 +133,27 @@ export default function App() {
   const posterShareRef = useRef<PosterHandle>(null);
   const posterSaveRef = useRef<PosterHandle>(null);
   const [showPoster, setShowPoster] = useState(false);
+  const [showPhotosInPoster, setShowPhotosInPoster] = useState(true);
+
+  // ---- Toast / Dialog state ----
+  const [toastMsg, setToastMsg] = useState('');
+  const [toastVis, setToastVis] = useState(false);
+  const showToast = useCallback((msg: string) => { setToastMsg(msg); setToastVis(true); }, []);
+  const [dialogCfg, setDialogCfg] = useState<{ title: string; message: string; confirmText?: string; cancelText?: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
 
   // ---- Entrance animation ----
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
   useEffect(() => {
     if (result) {
       fadeAnim.setValue(0);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
+      slideAnim.setValue(20);
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 450, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 450, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true }),
+      ]).start();
     }
-  }, [result, fadeAnim]);
+  }, [result, fadeAnim, slideAnim]);
 
   // ---- OCR filtering ----
   const {
@@ -202,7 +228,12 @@ export default function App() {
   // ---- Analyze handler → opens photo picker first ----
   const handleAnalyze = useCallback(async () => {
     if (periodHasResult) {
-      Alert.alert('已存在分析结果', '该时段已经生成过色彩报告，可在下方「往期回顾」中点击查看，或在首页切换时段后重新分析。');
+      setDialogCfg({
+        title: '已有分析结果',
+        message: '该时段已经生成过色彩报告，可在下方「往期回顾」中点击查看。',
+        confirmText: '知道了',
+        onConfirm: () => setDialogCfg(null),
+      });
       return;
     }
     clearError();
@@ -213,14 +244,14 @@ export default function App() {
       const granted = await requestPermission();
       if (!granted) return;
       await reload();
+      // After fresh permission grant, photos may not be ready yet —
+      // let the user tap again once they are loaded.
+      return;
     }
 
-    if (photos.length === 0 && !photosLoading) {
-      await reload();
-    }
-
+    if (photos.length === 0 && photosLoading) return;
     if (photos.length === 0) {
-      Alert.alert('提示', '这个时段没有照片');
+      showToast('这个时段没有照片');
       return;
     }
 
@@ -270,13 +301,13 @@ export default function App() {
     if (!posterSaveRef.current) return;
     try {
       const uri = await posterSaveRef.current.capture();
-      if (!uri) { Alert.alert('保存失败', '无法生成图片'); return; }
+      if (!uri) { showToast('无法生成图片'); return; }
       await CameraRoll.save(uri, { type: 'photo' });
       setShowPoster(false);
       goHome();
-      Alert.alert('保存成功', '已保存到相册');
+      showToast('已保存到相册');
     } catch (err) {
-      Alert.alert('保存失败', '请检查相册权限');
+      showToast('保存失败，请检查相册权限');
     }
   }, []);
 
@@ -285,7 +316,7 @@ export default function App() {
     if (!posterShareRef.current) return;
     try {
       const uri = await posterShareRef.current.capture();
-      if (!uri) { Alert.alert('分享失败', '无法生成图片'); return; }
+      if (!uri) { showToast('无法生成图片'); return; }
       const shareUrl = uri.startsWith('file://') ? uri : `file://${uri}`;
       await RNShare.open({
         url: shareUrl,
@@ -295,7 +326,7 @@ export default function App() {
       });
     } catch (err) {
       if ((err as any)?.message !== 'User did not share') {
-        Alert.alert('分享失败', '请稍后重试');
+        showToast('分享失败，请稍后重试');
         return;
       }
     }
@@ -323,7 +354,21 @@ export default function App() {
   // ---- Render ---------------------------------------------------------------
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#1a1a2e" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F9F6F1" />
+
+      {/* Toast / Dialog */}
+      <Toast message={toastMsg} visible={toastVis} onDone={() => setToastVis(false)} />
+      {dialogCfg && (
+        <Dialog
+          visible={true}
+          title={dialogCfg.title}
+          message={dialogCfg.message}
+          confirmText={dialogCfg.confirmText}
+          cancelText={dialogCfg.cancelText}
+          onConfirm={dialogCfg.onConfirm}
+          onCancel={dialogCfg.onCancel}
+        />
+      )}
 
       {/* Photo Picker — full-screen modal with auto OCR */}
       <PhotoPicker
@@ -345,8 +390,16 @@ export default function App() {
         {/* Header — shown only before analysis */}
         {!hasResult && (
           <>
-            <Text style={styles.title}>生活平均色</Text>
-            <Text style={styles.subtitle}>你的相册，调成一杯莫吉托的颜色</Text>
+            <View style={styles.titleRow}>
+              {[...'生活平均色'].map((ch, i) => (
+                <Text key={i} style={[styles.titleChar, { color: charColor(i) }]}>{ch}</Text>
+              ))}
+            </View>
+            <View style={styles.subtitleRow}>
+              {[...'你的相册，调成一杯莫吉托的颜色'].map((ch, i) => (
+                <Text key={i} style={[styles.subtitleChar, { color: subColor(i) }]}>{ch}</Text>
+              ))}
+            </View>
 
             {/* Period Selector */}
             <PeriodSelector
@@ -393,7 +446,7 @@ export default function App() {
                   {Array.from(resultCache.current.entries()).map(([label, r]) => {
                     const safeColors: (string | number)[] = r.gradientColors.length >= 2
                       ? r.gradientColors
-                      : ['#1a1a2e', '#16213e'];
+                      : ['#F8F5F0', '#E8E0D8'];
                     return (
                       <TouchableOpacity
                         key={label}
@@ -407,9 +460,16 @@ export default function App() {
                           end={{ x: 1, y: 1 }}
                           style={styles.historyCardInner}
                         >
-                          <Text style={styles.historyMiniLabel}>{label}</Text>
+                          {/* Mini branding */}
+                          <Text style={styles.historyBrand}>生活平均色</Text>
+                          {/* Color name — prominent */}
+                          <Text style={styles.historyColorName}>
+                            {r.namedColors.map((c) => c.name).join(' · ')}
+                          </Text>
                           <View style={{ flex: 1 }} />
-                          <Text style={styles.historyMiniCaption} numberOfLines={2}>
+                          {/* Time + caption at bottom */}
+                          <Text style={styles.historyTime}>{label}</Text>
+                          <Text style={styles.historyCaption} numberOfLines={1}>
                             {r.caption}
                           </Text>
                         </LinearGradient>
@@ -442,18 +502,15 @@ export default function App() {
           </View>
         )}
 
-        {/* No Photos */}
+        {/* No Photos — subtle inline message */}
         {noPhotos && (
-          <View style={styles.stateContainer}>
-            <Text style={styles.stateIcon}>📷</Text>
-            <Text style={styles.stateText}>这个时段没有照片</Text>
-          </View>
+          <Text style={styles.noPhotosHint}>这个时段没有照片</Text>
         )}
 
         {/* Loading photos */}
         {photosLoading && !permissionDenied && !analyzing && !hasResult && (
           <View style={styles.stateContainer}>
-            <ActivityIndicator color="rgba(255,255,255,0.6)" size="large" />
+            <ActivityIndicator color="#C9745B" size="large" />
             <Text style={styles.stateText}>正在加载照片...</Text>
           </View>
         )}
@@ -465,11 +522,15 @@ export default function App() {
               progress={progress || { current: 0, total: photos.length }}
               phase="running"
             />
+            <Text style={[styles.stateHint, { marginTop: 8 }]}>
+              {progress ? `${progress.current} / ${progress.total} 张` : '准备中...'}
+            </Text>
             <TouchableOpacity onPress={abort} style={styles.cancelButton} activeOpacity={0.7}>
               <Text style={styles.cancelButtonText}>取消分析</Text>
             </TouchableOpacity>
           </View>
         )}
+
 
         {/* Analysis Error */}
         {analysisError && !analyzing && (
@@ -484,7 +545,7 @@ export default function App() {
 
         {/* Result Section — with entrance animation */}
         {hasResult && result && (
-          <Animated.View style={[styles.resultSection, { opacity: fadeAnim }]}>
+          <Animated.View style={[styles.resultSection, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             {/* Gradient Card */}
             <CardViewWithRef
               ref={cardRef}
@@ -527,7 +588,7 @@ export default function App() {
                   value={userFeeling}
                   onChangeText={setUserFeeling}
                   placeholder="下雨、海边、咖啡馆……"
-                  placeholderTextColor="rgba(255,255,255,0.12)"
+                  placeholderTextColor="rgba(28,28,30,0.15)"
                   maxLength={100}
                   editable={!regeneratingCaption}
                 />
@@ -555,6 +616,18 @@ export default function App() {
                 <Text style={styles.btnSecondaryText}>保存海报</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Toggle: include photos in poster */}
+            <TouchableOpacity
+              style={styles.posterPhotoToggle}
+              onPress={() => setShowPhotosInPoster((p) => !p)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.toggleRing, showPhotosInPoster && styles.toggleRingOn]}>
+                {showPhotosInPoster && <View style={styles.toggleRingDot} />}
+              </View>
+              <Text style={styles.toggleLabel}>在海报中展示最接近平均色的瞬间</Text>
+            </TouchableOpacity>
           </Animated.View>
         )}
       </ScrollView>
@@ -568,7 +641,7 @@ export default function App() {
             namedColors={result.namedColors}
             timeLabel={result.timeLabel}
             caption={result.caption}
-            recommendedPhotos={result.recommendedPhotos}
+            recommendedPhotos={showPhotosInPoster ? result.recommendedPhotos : []}
           />
         </View>
       )}
@@ -584,7 +657,7 @@ export default function App() {
               namedColors={result.namedColors}
               timeLabel={result.timeLabel}
               caption={result.caption}
-              recommendedPhotos={result.recommendedPhotos}
+              recommendedPhotos={showPhotosInPoster ? result.recommendedPhotos : []}
             />
             <View style={styles.posterActions}>
               <TouchableOpacity onPress={() => setShowPoster(false)} style={styles.posterCancelBtn} activeOpacity={0.7}>
@@ -603,194 +676,138 @@ export default function App() {
 
 // -- Styles -------------------------------------------------------------------
 
+const C = {
+  bg: '#F8F5F0',
+  surface: '#FFFFFF',
+  text: '#1C1C1E',
+  text2: 'rgba(28,28,30,0.45)',
+  text3: 'rgba(28,28,30,0.25)',
+  accent: '#C9745B',
+  accentBg: 'rgba(201,116,91,0.08)',
+  border: 'rgba(0,0,0,0.06)',
+};
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#1a1a2e' },
+  safe: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 24, paddingTop: 60, paddingBottom: 100, alignItems: 'center' },
+  scrollContent: { paddingHorizontal: 24, paddingTop: 60, paddingBottom: 60, alignItems: 'center' },
   scrollContentResult: { paddingTop: 12 + (StatusBar.currentHeight || 32) },
 
-  title: { fontSize: 32, fontWeight: '800', color: '#ffffff', letterSpacing: 3, marginBottom: 6 },
-  subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.35)', letterSpacing: 1, marginBottom: 44 },
+  titleRow: { flexDirection: 'row', marginBottom: 6 },
+  titleChar: { fontSize: 34, fontWeight: '500', letterSpacing: 1 },
+  subtitleRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginBottom: 40 },
+  subtitleChar: { fontSize: 13, fontWeight: '400' },
 
-  // ── Buttons ────────────────────────────────────────────────────────────────
-  btnPrimary: {
-    backgroundColor: '#e94560',
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 16,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnPrimaryText: { color: '#ffffff', fontSize: 15, fontWeight: '700', letterSpacing: 1 },
-  btnSecondary: {
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnSecondaryText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' },
+  // Buttons
+  btnPrimary: { backgroundColor: C.accent, paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, flex: 1, alignItems: 'center', justifyContent: 'center' },
+  btnPrimaryText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
+  btnSecondary: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1, borderColor: C.border, flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface },
+  btnSecondaryText: { color: C.text2, fontSize: 13, fontWeight: '600' },
 
-  // ── Analyze CTA ────────────────────────────────────────────────────────────
-  analyzeButton: {
-    backgroundColor: '#e94560',
-    paddingHorizontal: 56,
-    paddingVertical: 16,
-    borderRadius: 18,
-    marginTop: 8,
-    minWidth: 200,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-  },
-  analyzeButtonDisabled: { opacity: 0.5 },
-  analyzeButtonDone: { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  analyzeButtonText: { color: '#ffffff', fontSize: 17, fontWeight: '700', letterSpacing: 2 },
-  analyzeButtonTextDone: { color: 'rgba(255,255,255,0.3)' },
+  // Analyze
+  analyzeButton: { backgroundColor: C.accent, paddingHorizontal: 56, paddingVertical: 16, borderRadius: 16, marginTop: 8, minWidth: 200, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
+  analyzeButtonDisabled: { opacity: 0.35 },
+  analyzeButtonDone: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  analyzeButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 1 },
+  analyzeButtonTextDone: { color: C.text3 },
 
-  // ── States ─────────────────────────────────────────────────────────────────
+  // States
   stateContainer: { alignItems: 'center', paddingVertical: 50, paddingHorizontal: 24, gap: 16 },
   stateIcon: { fontSize: 44, marginBottom: 4 },
-  stateText: { color: 'rgba(255,255,255,0.55)', fontSize: 15, textAlign: 'center', lineHeight: 22 },
-  stateHint: { color: 'rgba(255,255,255,0.25)', fontSize: 13, textAlign: 'center' },
+  stateText: { color: C.text2, fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  stateHint: { color: C.text3, fontSize: 13, textAlign: 'center' },
+  noPhotosHint: { color: C.text3, fontSize: 12, textAlign: 'center', marginTop: 16, letterSpacing: 0.5 },
+  secondaryButton: { marginTop: 16, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 22, borderWidth: 1, borderColor: C.border },
+  secondaryButtonText: { color: C.text2, fontSize: 14, fontWeight: '600' },
+  cancelButton: { marginTop: 20, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(201,116,91,0.3)' },
+  cancelButtonText: { color: C.accent, fontSize: 14, fontWeight: '600' },
 
-  secondaryButton: { marginTop: 16, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
-  secondaryButtonText: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '600' },
-  cancelButton: { marginTop: 20, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(233, 69, 96, 0.4)' },
-  cancelButtonText: { color: '#e94560', fontSize: 14, fontWeight: '600' },
+  // Progress
+  progressBarContainer: { width: '75%', height: 3, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
+  progressBarFill: { height: '100%', backgroundColor: C.accent, borderRadius: 2 },
 
-  // ── Progress ───────────────────────────────────────────────────────────────
-  progressBarContainer: { width: '75%', height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden', marginTop: 4 },
-  progressBarFill: { height: '100%', backgroundColor: '#e94560', borderRadius: 2 },
-
-  // ── Back button ────────────────────────────────────────────────────────────
-  backBtn: { alignSelf: 'flex-start', marginBottom: 20, paddingVertical: 6, paddingHorizontal: 4 },
-  backBtnText: { color: 'rgba(255,255,255,0.35)', fontSize: 14, letterSpacing: 1 },
-
-  // ── Result ─────────────────────────────────────────────────────────────────
+  // Result
   resultSection: { width: '100%', alignItems: 'center' },
+  recommendSection: { width: '100%', marginTop: 16 },
+  recommendTitle: { color: C.text2, fontSize: 11, letterSpacing: 2, marginBottom: 8, textAlign: 'center' },
+  recommendRow: { gap: 8, paddingHorizontal: 16, justifyContent: 'center' },
+  recommendThumb: { width: 72, height: 72, borderRadius: 12, borderWidth: 1, borderColor: C.border },
 
-  photoCount: { color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 16, letterSpacing: 1 },
+  divider: { width: 28, height: 1.5, backgroundColor: C.border, borderRadius: 1, marginTop: 16, marginBottom: 16 },
 
-  recommendSection: { width: '100%', marginTop: 20 },
-  recommendTitle: { color: 'rgba(255,255,255,0.4)', fontSize: 12, letterSpacing: 2, marginBottom: 10, textAlign: 'center' },
-  recommendRow: { gap: 10, paddingHorizontal: 16, justifyContent: 'center' },
-  recommendThumb: { width: 88, height: 88, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-
-  divider: {
-    width: 32,
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 1,
-    marginTop: 22,
-    marginBottom: 22,
-  },
-
-  // ── Feeling ────────────────────────────────────────────────────────────────
+  // Feeling
   feelingSection: { width: '100%', paddingHorizontal: 4 },
-  feelingLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 12, letterSpacing: 1, marginBottom: 8 },
-  feelingRow: { flexDirection: 'row', gap: 10, alignItems: 'stretch' },
-  feelingInput: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#ffffff',
-    fontSize: 14,
-    lineHeight: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  feelingBtn: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  feelingBtnDisabled: { opacity: 0.35 },
-  feelingBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600', letterSpacing: 1 },
+  feelingLabel: { color: C.text3, fontSize: 11, letterSpacing: 0.5, marginBottom: 6 },
+  feelingRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
+  feelingInput: { flex: 1, backgroundColor: C.surface, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, color: C.text, fontSize: 13, lineHeight: 18, borderWidth: 1, borderColor: C.border },
+  feelingBtn: { backgroundColor: C.accentBg, borderRadius: 12, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  feelingBtnDisabled: { opacity: 0.3 },
+  feelingBtnText: { color: C.accent, fontSize: 12, fontWeight: '700' },
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-  actionRow: { flexDirection: 'row', gap: 12, marginTop: 20, width: '100%', paddingHorizontal: 4 },
+  // Actions
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 16, width: '100%', paddingHorizontal: 4 },
 
-  // ── Poster modal ───────────────────────────────────────────────────────────
-  posterModalBg: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.94)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    gap: 24,
-  },
+  // Poster modal
+  posterModalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, gap: 24 },
   posterActions: { flexDirection: 'row', gap: 14 },
-  posterCancelBtn: {
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  posterCancelText: { color: 'rgba(255,255,255,0.5)', fontSize: 14, fontWeight: '600' },
-  posterSaveBtn: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: '#e94560',
-  },
-  posterSaveText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  posterCancelBtn: { paddingHorizontal: 28, paddingVertical: 14, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  posterCancelText: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '600' },
+  posterSaveBtn: { paddingHorizontal: 32, paddingVertical: 14, borderRadius: 16, backgroundColor: C.accent },
+  posterSaveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
 
-  // ── History carousel ───────────────────────────────────────────────────────
+  // Poster toggle
+  posterPhotoToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 4 },
+  toggleRing: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: C.text3, alignItems: 'center', justifyContent: 'center' },
+  toggleRingOn: { borderColor: C.accent },
+  toggleRingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent },
+  toggleLabel: { color: C.text3, fontSize: 11, letterSpacing: 0.5 },
+
+  // History
   historySection: { width: '100%', marginTop: 48 },
-  historyTitle: { color: 'rgba(255,255,255,0.35)', fontSize: 12, letterSpacing: 2, marginBottom: 14, textAlign: 'center' },
+  historyTitle: { color: C.text3, fontSize: 12, letterSpacing: 2, marginBottom: 14, textAlign: 'center' },
   historyRow: { gap: 16, paddingHorizontal: 8 },
-  historyCard: {
-    width: 220,
-    height: 310,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 18,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  historyCardInner: {
-    flex: 1,
-    paddingTop: 18,
-    paddingBottom: 14,
-    paddingHorizontal: 14,
-  },
-  historyMiniLabel: {
+  historyCard: { width: 220, height: 310, backgroundColor: C.surface, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: C.border, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
+  historyCardInner: { flex: 1, paddingTop: 14, paddingBottom: 12, paddingHorizontal: 12 },
+  historyBrand: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 2,
-    textAlign: 'center',
-  },
-  historyMiniCaption: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.5,
     textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
-
-  historyPlaceholder: {
-    width: '100%',
-    marginTop: 48,
-    paddingVertical: 32,
-    alignItems: 'center',
-  },
-  historyPlaceholderText: {
-    color: 'rgba(255,255,255,0.15)',
-    fontSize: 13,
+  historyColorName: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 2,
     textAlign: 'center',
-    lineHeight: 22,
+    marginTop: 14,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
+  historyTime: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textAlign: 'center',
+    marginBottom: 4,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
+  },
+  historyCaption: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 11,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
+  },
+
+  historyPlaceholder: { width: '100%', marginTop: 48, paddingVertical: 32, alignItems: 'center' },
+  historyPlaceholderText: { color: C.text3, fontSize: 13, textAlign: 'center', lineHeight: 22 },
 });

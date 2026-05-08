@@ -184,14 +184,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(0,0,0,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  navArrow: { color: 'rgba(255,255,255,0.4)', fontSize: 26, fontWeight: '200', lineHeight: 28 },
+  navArrow: { color: 'rgba(28,28,30,0.3)', fontSize: 26, fontWeight: '200', lineHeight: 28 },
   navCenter: { alignItems: 'center', flex: 1 },
-  navMain: { color: '#ffffff', fontSize: 22, fontWeight: '700', letterSpacing: 2 },
-  navSub: { color: 'rgba(255,255,255,0.3)', fontSize: 11, letterSpacing: 1, marginTop: 3 },
+  navMain: { color: '#1C1C1E', fontSize: 22, fontWeight: '700', letterSpacing: 2 },
+  navSub: { color: 'rgba(28,28,30,0.25)', fontSize: 11, letterSpacing: 1, marginTop: 3 },
 
   // ── Custom date ────────────────────────────────────────────────────────────
   customRow: {
@@ -209,10 +209,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flex: 1,
   },
-  dateLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 12 },
-  dateText: { color: '#ffffff', fontSize: 14, fontWeight: '600', flex: 1 },
-  dateMuted: { color: 'rgba(255,255,255,0.2)' },
-  dateSep: { color: 'rgba(255,255,255,0.2)', fontSize: 14 },
+  dateLabel: { color: 'rgba(28,28,30,0.25)', fontSize: 12 },
+  dateText: { color: '#1C1C1E', fontSize: 14, fontWeight: '600', flex: 1 },
+  dateMuted: { color: 'rgba(28,28,30,0.15)' },
+  dateSep: { color: 'rgba(28,28,30,0.15)', fontSize: 14 },
 
   // ── Presets ────────────────────────────────────────────────────────────────
   pills: {
@@ -225,18 +225,18 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(0,0,0,0.04)',
   },
   pillActive: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.08)',
   },
   pillText: {
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(28,28,30,0.25)',
     fontSize: 13,
     fontWeight: '500',
   },
   pillTextActive: {
-    color: '#ffffff',
+    color: '#1C1C1E',
     fontWeight: '600',
   },
 });

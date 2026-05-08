@@ -13,8 +13,8 @@
 - **照片推荐** — 自动推荐 0–3 张最接近平均色的照片
 - **AI 配文** — DeepSeek 根据色系生成诗意文案，支持输入个人感受重新生成
 - **海报分享** — 一键生成包含渐变色、色名、推荐照片的品牌海报，直接分享到微信/QQ
-- **往期回顾** — 首页轮播展示历史分析，点击即可回顾
-- **暗色主题** — 全暗色界面，渐入动效，精致排版
+- **往期回顾** — 首页轮播展示历史分析的海报缩略图，点击即时回顾
+- **浅色暖调设计** — 奶油白底色 + 珊瑚暖调点缀，逐字渐变标题，弹性动效
 
 ## 怎么用
 
@@ -93,11 +93,13 @@ src/
     generate.ts             # DeepSeek API 文案生成
   components/
     CardView.tsx            # 渐变色卡片（色名浮动标签 + 配文叠加）
-    Poster.tsx              # 海报（品牌 + 渐变 + 色名 + 推荐照片 + 水印）
+    Poster.tsx              # 海报（品牌 + 渐变 + 色名 + 推荐照片）
     PhotoPicker.tsx         # 照片审核（OCR 实时标记 + 手动选择）
-    PeriodSelector.tsx      # 时段选择器（预设 + 自定义日期）
-    CustomDatePicker.tsx    # 暗色主题日期选择器
-    AnalysisAnimation.tsx   # 分析过程色彩融合动画
+    PeriodSelector.tsx      # 时段选择器（预设 + 自定义日期滚轮）
+    CustomDatePicker.tsx    # 浅色主题滚轮日期选择器
+    AnalysisAnimation.tsx   # 色彩粒子融合动画
+    Toast.tsx               # 暗底居中提示条
+    Dialog.tsx              # 暗色弹窗（替代系统 Alert）
   types.ts                  # 类型定义
 ```
 

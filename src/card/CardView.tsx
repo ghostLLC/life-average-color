@@ -40,8 +40,8 @@ export interface CardViewProps {
 
 // -- Dimensions --------------------------------------------------------------
 
-const HORIZONTAL_PADDING = 80; // 40px per side — card at ~80% screen width
-const ASPECT_RATIO = 1.6; // height = width * 1.6 (5:8 portrait)
+const HORIZONTAL_PADDING = 100; // 50px per side — card at ~72% screen width
+const ASPECT_RATIO = 1.55;
 
 // -- Component ---------------------------------------------------------------
 

@@ -40,15 +40,19 @@ function Poster(
     capture: async () => (await viewShotRef.current?.capture()) ?? '',
   }));
 
-  const ratios = namedColors.map((c) => c.ratio ?? 1 / namedColors.length);
-  const maxR = Math.max(...ratios);
   const photoSize = posterW / 3.5;
+
+  // Same positioning as CardView — poster is a scaled copy
+  function labelPos(i: number, total: number) {
+    const pos = total <= 1 ? 0.5 : i / (total - 1);
+    return { top: `${8 + pos * 55}%` as const, left: `${8 + pos * 58}%` as const };
+  }
 
   return (
     <ViewShot
       ref={viewShotRef}
       options={{ format: 'png', quality: 1 }}
-      style={[styles.shot, { width: posterW, height: posterH }]}
+      style={{ width: posterW, height: posterH, backgroundColor: safeColors[0] as string }}
     >
       <LinearGradient colors={safeColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.bg}>
         {/* Branding */}
@@ -64,19 +68,12 @@ function Poster(
         <View style={styles.gradientArea}>
           <LinearGradient colors={safeColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradientFill}>
             {namedColors.map((nc, i) => {
-              const n = namedColors.length;
-              const r = nc.ratio ?? 1 / n;
-              const cumulative = namedColors.slice(0, i).reduce((s, c) => s + (c.ratio ?? 1 / n), 0);
-              const pos = n <= 1 ? 0.45 : cumulative + r / 2;
-              const topPct = `${5 + pos * 50}%` as const;
-              const leftPct = `${5 + pos * 50}%` as const;
-              const scale = 0.75 + (r / maxR) * 0.25;
+              const pos = labelPos(i, namedColors.length);
+              const r = nc.ratio ?? 1 / namedColors.length;
               const pct = Math.round(r * 100);
               return (
-                <View key={i} style={[styles.colorLabel, { top: topPct, left: leftPct }]}>
-                  <Text style={[styles.colorName, { color: nc.hex, fontSize: Math.round(26 * scale) }]}>
-                    {nc.name}
-                  </Text>
+                <View key={i} style={[styles.colorLabel, { top: pos.top, left: pos.left }]}>
+                  <Text style={[styles.colorName, { color: nc.hex }]}>{nc.name}</Text>
                   <Text style={[styles.colorPct, { color: nc.hex }]}>
                     {pct}%  {nc.hex}
                   </Text>
@@ -110,12 +107,14 @@ function Poster(
           </View>
         )}
 
-        {/* Watermark */}
-        <View style={styles.watermarkRow}>
-          <View style={styles.watermarkLine} />
-          <Text style={styles.watermarkText}>生活平均色</Text>
-          <View style={styles.watermarkLine} />
-        </View>
+        {/* Watermark — only when no photos shown */}
+        {recommendedPhotos.length === 0 && (
+          <View style={styles.watermarkRow}>
+            <View style={styles.watermarkLine} />
+            <Text style={styles.watermarkText}>生活平均色</Text>
+            <View style={styles.watermarkLine} />
+          </View>
+        )}
       </LinearGradient>
     </ViewShot>
   );
@@ -125,13 +124,27 @@ const PosterWithRef = forwardRef(Poster);
 export default PosterWithRef;
 
 const styles = StyleSheet.create({
-  shot: { borderRadius: 32, overflow: 'hidden' },
   bg: { flex: 1, paddingHorizontal: 24, paddingTop: 28, paddingBottom: 24 },
 
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   brandIcon: { width: 44, height: 44, borderRadius: 12 },
-  brandTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800', letterSpacing: 3 },
-  brandSub: { color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 3 },
+  brandTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 3,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  brandSub: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    marginTop: 3,
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 5,
+  },
 
   // Gradient + floating labels
   gradientArea: { flex: 1, marginVertical: 14, borderRadius: 20, overflow: 'hidden' },
